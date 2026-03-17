@@ -1,0 +1,70 @@
+
+
+
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include <SPI.h>
+#include <MFRC522.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+// Wi-Fi credentials
+const char* ssid = "narzo 50A";
+const char* password = "12345678";
+
+// Firebase credentials
+#define API_KEY "AIzaSyAeJlnM73Y5b66FqmxB5Q4OggByzJ5gSHk"
+#define DATABASE_URL "https://attendence-reader-default-rtdb.firebaseio.com/"
+
+// Firebase config
+FirebaseData fbdo;
+FirebaseAuth auth;
+FirebaseConfig config;
+
+#define SS_PIN 5
+#define RST_PIN 22
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+// NTP-Time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 19800); // India = GMT+5:30
+
+// UID-to-name mapping
+String getNameFromUID(byte *uid) {
+  String id = "";
+  for (byte i = 0; i < 4; i++) id += String(uid[i], HEX);
+  if (id == "a1b2c3d4") return "Rahul";
+  else if (id == "12345678") return "Anjali";
+  return "Unknown";
+}
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();
+  rfid.PCD_Init();
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(1000);
+
+  config.api_key = API_KEY;
+  config.database_url = DATABASE_URL;
+  Firebase.begin(&config, nullptr);
+  timeClient.begin();
+  Serial.printf("Set bool... %s\n", Firebase.setBool(fbdo, F("/test/bool"), count % 2 == 0) ? "ok" : fbdo.errorReason().c_str());
+
+}
+
+void loop() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) return;
+
+  String name = getNameFromUID(rfid.uid.uidByte);
+  timeClient.update();
+  String timestamp = timeClient.getFormattedTime();
+
+  String path = "/attendance/" + name;
+  Firebase.RTDB.pushString(&fbdo, path, timestamp);
+
+  Serial.println("Attendance marked for: " + name + " at " + timestamp);
+
+  delay(2000);
+}
